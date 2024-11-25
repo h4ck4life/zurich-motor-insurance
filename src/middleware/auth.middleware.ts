@@ -3,10 +3,18 @@ import {
   NestMiddleware,
   UnauthorizedException,
   Logger,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import * as jwt from 'jsonwebtoken';
 import { ConfigService } from '@nestjs/config';
+
+interface JwtPayload {
+  sub: string;
+  role?: string;
+  email?: string;
+  exp?: number;
+}
 
 @Injectable()
 export class AuthMiddleware implements NestMiddleware {
@@ -30,7 +38,7 @@ export class AuthMiddleware implements NestMiddleware {
 
       const [bearer, token] = authHeader.split(' ');
       this.logger.debug(`Bearer: ${bearer}`);
-      this.logger.debug(`Token: ${token?.substring(0, 20)}...`); // Only log part of the token for security
+      this.logger.debug(`Token: ${token?.substring(0, 20)}...`);
 
       if (bearer !== 'Bearer' || !token) {
         this.logger.warn(
@@ -39,18 +47,25 @@ export class AuthMiddleware implements NestMiddleware {
         throw new UnauthorizedException('Invalid token format');
       }
 
-      try {
-        const jwtSecret = this.configService.get<string>('JWT_SECRET');
-        this.logger.debug(`JWT Secret exists: ${!!jwtSecret}`);
+      const jwtSecret = this.configService.get<string>('JWT_SECRET');
+      this.logger.debug(`JWT Secret exists: ${!!jwtSecret}`);
 
-        if (!jwtSecret) {
-          this.logger.error(
-            'JWT_SECRET is not configured in environment variables',
+      if (!jwtSecret) {
+        this.logger.error(
+          'JWT_SECRET is not configured in environment variables',
+        );
+        throw new InternalServerErrorException('JWT_SECRET is not configured');
+      }
+
+      try {
+        const decoded = jwt.verify(token, jwtSecret) as JwtPayload;
+
+        if (!decoded.sub) {
+          throw new UnauthorizedException(
+            'Invalid token: missing required claims',
           );
-          throw new Error('JWT_SECRET is not configured');
         }
 
-        const decoded = jwt.verify(token, jwtSecret) as any;
         this.logger.debug('Token verified successfully');
         this.logger.debug(
           `Decoded token payload: ${JSON.stringify(
@@ -70,24 +85,29 @@ export class AuthMiddleware implements NestMiddleware {
           role: decoded.role,
           email: decoded.email,
         };
+
         this.logger.debug(`User context set: ${JSON.stringify(req['user'])}`);
 
         next();
       } catch (error) {
         this.logger.error('Token verification failed:', error);
         if (error instanceof jwt.TokenExpiredError) {
-          this.logger.warn('Token has expired');
           throw new UnauthorizedException('Token has expired');
         }
         if (error instanceof jwt.JsonWebTokenError) {
-          this.logger.warn(`Invalid token: ${error.message}`);
           throw new UnauthorizedException('Invalid token');
         }
         throw error;
       }
     } catch (error) {
       this.logger.error('Middleware error:', error);
-      throw new UnauthorizedException(error.message);
+      if (
+        error instanceof UnauthorizedException ||
+        error instanceof InternalServerErrorException
+      ) {
+        throw error;
+      }
+      throw new UnauthorizedException('Invalid token');
     }
   }
 }
