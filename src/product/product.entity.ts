@@ -1,17 +1,16 @@
-/* eslint-disable prettier/prettier */
 import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
 
 @Entity('PRODUCT')
 export class Product {
-    @PrimaryGeneratedColumn()
-    id: number;
+  @PrimaryGeneratedColumn()
+  id: number;
 
-    @Column()
-    productCode: string;
+  @Column()
+  productCode: string;
 
-    @Column()
-    location: string;
+  @Column()
+  location: string;
 
-    @Column('decimal')
-    price: number;
+  @Column('decimal')
+  price: number;
 }
